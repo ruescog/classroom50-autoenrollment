@@ -8,3 +8,5 @@
 4. Run `installTrigger` and grant the requested Apps Script permissions. The function creates the questions, enables email collection, saves the question IDs, and installs the trigger. If the form is still unpublished, publish it in Google Forms.
 
 You can rename and reorder the generated questions. If you change `CONFIG.classes`, run `installTrigger` again to update the course options.
+
+To send GitHub organization invitations, set `CONFIG.inviteToOrganization` to `true`. Use a token from an organization owner with [**Members** organization permission (write)](https://docs.github.com/en/rest/orgs/members#create-an-organization-invitation) in addition to repository write access. After all selected rosters are updated, the script invites the submitted GitHub account as an organization member. Students accept the invitation in GitHub. Active or pending members are skipped.

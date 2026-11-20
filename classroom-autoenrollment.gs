@@ -3,6 +3,7 @@
 const CONFIG = {
   formId: "FORM_ID", // FILLME
   owner: "ORG_NAME", // FILLME
+  inviteToOrganization: false, // FILLME
   repo: "classroom50",
   branch: "main",
   classes: { // FILLME: one line for each class
@@ -225,9 +226,41 @@ function processResponse(response, formId) {
     updateRoster(CONFIG.classes[className], student);
   }
 
+  if (CONFIG.inviteToOrganization) {
+    inviteOrganizationMember(student.username, info.id);
+  }
+
   console.log(
     `Processed ${student.username}: ${[...new Set(classes)].join(", ")}`
   );
+}
+
+function inviteOrganizationMember(username, githubId) {
+  const orgUrl = `https://api.github.com/orgs/${encodeURIComponent(CONFIG.owner)}`;
+  const membershipUrl = `${orgUrl}/memberships/${encodeURIComponent(username)}`;
+  const hasMembership = () => {
+    const response = githubRequest(membershipUrl, "get", undefined, [404]);
+    if (response.getResponseCode() === 404) {
+      return false;
+    }
+    const { state } = JSON.parse(response.getContentText());
+    return state === "active" || state === "pending";
+  };
+
+  if (hasMembership()) {
+    return;
+  }
+
+  const response = githubRequest(`${orgUrl}/invitations`, "post", {
+    invitee_id: githubId,
+    role: "direct_member"
+  }, [422]);
+
+  if (response.getResponseCode() === 201) {
+    console.log(`Invited ${username} to ${CONFIG.owner}.`);
+  } else if (!hasMembership()) {
+    throw new Error(`Could not invite ${username}: GitHub HTTP ${response.getResponseCode()}: ${response.getContentText()}`);
+  }
 }
 
 /**
