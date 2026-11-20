@@ -15,9 +15,9 @@ const CONFIG = {
 
 const FORM_FIELDS = {
   username: "Nombre de usuario en GitHub",
+  personalEmail: "Correo electrónico (solo si el usuario es tu cuenta personal)",
   firstName: "Nombre",
   lastName: "Primer apellido",
-  personalEmail: "Correo electrónico (solo si es tu cuenta personal)",
   classes: "Curso al que perteneces"
 };
 
