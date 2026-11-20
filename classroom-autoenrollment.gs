@@ -146,14 +146,7 @@ function onFormSubmit(e) {
     throw new Error("This function requires a form submission.");
   }
 
-  const lock = LockService.getScriptLock();
-  lock.waitLock(30000);
-
-  try {
-    processResponse(e.response, e.source.getId());
-  } finally {
-    lock.releaseLock();
-  }
+  processResponse(e.response, e.source.getId());
 }
 
 /**
@@ -225,13 +218,19 @@ function processResponse(response, formId) {
     role: "student"
   };
 
-  // Update each selected class.
-  for (const className of new Set(classes)) {
-    updateRoster(CONFIG.classes[className], student);
-  }
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
 
-  if (CONFIG.inviteToOrganization) {
-    inviteOrganizationMember(student.username, info.id);
+  try {
+    for (const className of new Set(classes)) {
+      updateRoster(CONFIG.classes[className], student);
+    }
+
+    if (CONFIG.inviteToOrganization) {
+      inviteOrganizationMember(student.username, info.id);
+    }
+  } finally {
+    lock.releaseLock();
   }
 
   console.log(
@@ -325,6 +324,13 @@ function updateRoster(path, student) {
     );
 
     const newRow = header.map(c => student[c]);
+    const existingRow = rows[rowIndex];
+
+    if (existingRow?.length === newRow.length &&
+        newRow.every((value, index) => value === existingRow[index])) {
+      console.log(`${path} already up to date`);
+      return;
+    }
 
     if (rowIndex === -1) {
       rows.push(newRow);
