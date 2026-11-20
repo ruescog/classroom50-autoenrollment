@@ -202,8 +202,12 @@ function processResponse(response, formId) {
   // Look up the numeric GitHub ID.
   const githubUserResponse = githubRequest(
     `https://api.github.com/users/${encodeURIComponent(username)}`,
-    "get"
+    "get", undefined, [404]
   );
+
+  if (githubUserResponse.getResponseCode() === 404) {
+    throw new Error(`GitHub HTTP 404: No account found for "${username}". Check the submitted GitHub username.`);
+  }
 
   const info = JSON.parse(githubUserResponse.getContentText());
 
@@ -237,9 +241,19 @@ function processResponse(response, formId) {
 
 function inviteOrganizationMember(username, githubId) {
   const orgUrl = `https://api.github.com/orgs/${encodeURIComponent(CONFIG.owner)}`;
-  const membershipUrl = `${orgUrl}/memberships/${encodeURIComponent(username)}`;
+  const orgRequest = (path, method, body, allowedStatus) => {
+    const response = githubRequest(`${orgUrl}/${path}`, method, body, [allowedStatus, 403]);
+    if (response.getResponseCode() === 403) {
+      const detail = response.getContentText();
+      const hint = detail.includes("Resource not accessible by personal access token")
+        ? ` Check that GITHUB_TOKEN belongs to an organization owner and grants Members: Read and write for ${CONFIG.owner}.`
+        : "";
+      throw new Error(`GitHub HTTP 403 during ${method.toUpperCase()} ${orgUrl}/${path}: ${detail}${hint}`);
+    }
+    return response;
+  };
   const hasMembership = () => {
-    const response = githubRequest(membershipUrl, "get", undefined, [404]);
+    const response = orgRequest(`memberships/${encodeURIComponent(username)}`, "get", undefined, 404);
     if (response.getResponseCode() === 404) {
       return false;
     }
@@ -251,10 +265,10 @@ function inviteOrganizationMember(username, githubId) {
     return;
   }
 
-  const response = githubRequest(`${orgUrl}/invitations`, "post", {
+  const response = orgRequest("invitations", "post", {
     invitee_id: githubId,
     role: "direct_member"
-  }, [422]);
+  }, 422);
 
   if (response.getResponseCode() === 201) {
     console.log(`Invited ${username} to ${CONFIG.owner}.`);
