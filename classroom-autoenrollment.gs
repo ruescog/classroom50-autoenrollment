@@ -178,11 +178,12 @@ function processResponse(response, formId) {
   // Checkbox questions return an array.
   const selection = getAnswer("classes");
 
-  const classes = (
+  const selectedClasses = (
     Array.isArray(selection) ? selection : [selection]
   )
     .map(x => String(x ?? "").trim().toUpperCase())
     .filter(x => Object.hasOwn(CONFIG.classes, x));
+  const classes = [...new Set(selectedClasses)];
 
   if (!username || !firstName || !lastName || !email) {
     throw new Error("Required student details are missing.");
@@ -222,26 +223,26 @@ function processResponse(response, formId) {
   lock.waitLock(30000);
 
   try {
-    for (const className of new Set(classes)) {
-      updateRoster(CONFIG.classes[className], student);
+    if (CONFIG.inviteToOrganization) {
+      enrollOrganizationMember(student.username, info.id, classes);
     }
 
-    if (CONFIG.inviteToOrganization) {
-      inviteOrganizationMember(student.username, info.id);
+    for (const className of classes) {
+      updateRoster(CONFIG.classes[className], student);
     }
   } finally {
     lock.releaseLock();
   }
 
   console.log(
-    `Processed ${student.username}: ${[...new Set(classes)].join(", ")}`
+    `Processed ${student.username}: ${classes.join(", ")}`
   );
 }
 
-function inviteOrganizationMember(username, githubId) {
+function enrollOrganizationMember(username, githubId, classes) {
   const orgUrl = `https://api.github.com/orgs/${encodeURIComponent(CONFIG.owner)}`;
-  const orgRequest = (path, method, body, allowedStatus) => {
-    const response = githubRequest(`${orgUrl}/${path}`, method, body, [allowedStatus, 403]);
+  const orgRequest = (path, method, body, allowedStatuses = []) => {
+    const response = githubRequest(`${orgUrl}/${path}`, method, body, [...allowedStatuses, 403]);
     if (response.getResponseCode() === 403) {
       const detail = response.getContentText();
       const hint = detail.includes("Resource not accessible by personal access token")
@@ -251,8 +252,12 @@ function inviteOrganizationMember(username, githubId) {
     }
     return response;
   };
-  const hasMembership = () => {
-    const response = orgRequest(`memberships/${encodeURIComponent(username)}`, "get", undefined, 404);
+  const encodedUsername = encodeURIComponent(username);
+  const teamPaths = classes.map(className =>
+    `teams/classroom50-${encodeURIComponent(className.toLowerCase())}`
+  );
+  const hasMembership = path => {
+    const response = orgRequest(path, "get", undefined, [404]);
     if (response.getResponseCode() === 404) {
       return false;
     }
@@ -260,19 +265,36 @@ function inviteOrganizationMember(username, githubId) {
     return state === "active" || state === "pending";
   };
 
-  if (hasMembership()) {
-    return;
+  const orgMembershipPath = `memberships/${encodedUsername}`;
+  if (!hasMembership(orgMembershipPath)) {
+    const teamIds = teamPaths.map(path => {
+      const team = orgRequest(path, "get", undefined, [404]);
+      if (team.getResponseCode() === 404) {
+        throw new Error(`GitHub team not found or not accessible: ${orgUrl}/${path}`);
+      }
+      return JSON.parse(team.getContentText()).id;
+    });
+
+    const response = orgRequest("invitations", "post", {
+      invitee_id: githubId,
+      role: "direct_member",
+      team_ids: teamIds
+    }, [422]);
+
+    if (response.getResponseCode() === 201) {
+      console.log(`Invited ${username} to ${CONFIG.owner} and the selected teams.`);
+      return;
+    }
+    if (!hasMembership(orgMembershipPath)) {
+      throw new Error(`Could not invite ${username}: GitHub HTTP ${response.getResponseCode()}: ${response.getContentText()}`);
+    }
   }
 
-  const response = orgRequest("invitations", "post", {
-    invitee_id: githubId,
-    role: "direct_member"
-  }, 422);
-
-  if (response.getResponseCode() === 201) {
-    console.log(`Invited ${username} to ${CONFIG.owner}.`);
-  } else if (!hasMembership()) {
-    throw new Error(`Could not invite ${username}: GitHub HTTP ${response.getResponseCode()}: ${response.getContentText()}`);
+  for (const teamPath of teamPaths) {
+    const path = `${teamPath}/memberships/${encodedUsername}`;
+    if (!hasMembership(path)) {
+      orgRequest(path, "put", { role: "member" });
+    }
   }
 }
 
